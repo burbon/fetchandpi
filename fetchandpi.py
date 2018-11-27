@@ -7,15 +7,18 @@ import gevent
 from gevent import Greenlet
 from gevent.pool import Pool
 from gevent.event import AsyncResult
+from gevent import monkey
+
+import requests
 
 
-def task(evt, pid):
+def task(evt, pid, url):
     """
     Some non-deterministic task
     """
-    took = random.randint(0, 5)
-    gevent.sleep(took)
-    print('Task %s done. Took %s' % (pid, took))
+    start = time.time()
+    requests.get(url)
+    print('Task %s done. Took %s' % (pid, time.time() - start))
 
 
 def pi_approx_classic(evt):
@@ -25,7 +28,7 @@ def pi_approx_classic(evt):
         return 4*ppi
 
     while True:
-        print('Pi iteration: %s, %s' % (i, pi(S)))
+        #print('Pi iteration: %s, %s' % (i, pi(S)))
         S += Dec(float(sign) / (2*i+1))
         evt.set(pi(S))
 
@@ -58,18 +61,18 @@ def pi_approx_ng(evt):
         gevent.sleep(0)
 
 
-def run(pool, evt):
+def run(pool, evt, url):
     for i in xrange(10):
-        pool.start(Greenlet(task, evt, i))
+        pool.start(Greenlet(task, evt, i, url))
 
-    pi = Greenlet(pi_approx_classic, evt)
-    pool.start(pi)
+    pijob = Greenlet(pi_approx_classic, evt)
+    pool.start(pijob)
 
     while True:
-        print('Pool size: %s' % len(pool))
-        if len(pool) == 1 and pi in pool:
+        #print('Pool size: %s' % len(pool))
+        if len(pool) == 1 and pijob in pool:
             print('I should die: %s' % evt.get())
-            pool.killone(pi)
+            pool.killone(pijob)
             print('and i died: %s' % evt.get())
             return
 
@@ -77,12 +80,14 @@ def run(pool, evt):
 
 
 def main():
+    monkey.patch_all()
+
     evt = AsyncResult()
     pool = Pool()
+    url = 'http://slowwly.robertomurray.co.uk/delay/3000/url/https:/www.python.org/'
+
     start = time.time()
-
-    run(pool, evt)
-
+    run(pool, evt, url)
     print('All tasks done. Took %s' % (time.time() - start))
 
 main()
