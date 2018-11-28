@@ -16,16 +16,16 @@ import requests
 import click
 
 
-def dld(pid, url, delay):
+def dld(pid, config):
     """
     Downloads url content into memory
     """
     logging.debug('started downloading: %s', pid)
     start = time.time()
-    resp = requests.get(url)
+    resp = requests.get(config['url'])
 
-    if delay:
-        time.sleep(delay)
+    if config['delay']:
+        time.sleep(config['delay'])
 
     stats = {
         'pid': pid,
@@ -34,10 +34,12 @@ def dld(pid, url, delay):
         'checksum': hashlib.sha256(resp.content).hexdigest()
     }
 
+    logging.debug('finished downloading: %s', pid)
+
     return stats
 
 
-def pi_approx_classic(evt, piswitch):
+def pi_approx_classic(evt, config):
     """
     Classical approach to pi approximation - Madhava-Leibniz.
     It converges too slowly to be of practical interest.
@@ -56,11 +58,11 @@ def pi_approx_classic(evt, piswitch):
         sign = -sign
 
         # making sure greenlet yields
-        if i % piswitch == 0:
+        if i % config['piswitch'] == 0:
             gevent.sleep(0)
 
 
-def pi_approx_ng(evt, piswitch):
+def pi_approx_ng(evt, config):
     """
     https://en.wikipedia.org/wiki/Chudnovsky_algorithm
     was used in the world record calculations of 2.7 trillion digits of pi
@@ -84,18 +86,22 @@ def pi_approx_ng(evt, piswitch):
         i += 1
 
         # making sure greenlet yields
-        if i % piswitch == 0:
+        if i % config['piswitch'] == 0:
             gevent.sleep(0)
 
 
-def run(pool, evt, url, pi_approx, copy, delay, piswitch):
+def run(run_config, dld_config, pi_config):
+    evt = AsyncResult()
+    pool = Pool(run_config['greenlets'])
+
     dldjobs = []
-    for i in xrange(copy):
-        dldjob = Greenlet(dld, i, url, delay)
+    for i in xrange(run_config['copies']):
+        dldjob = Greenlet(dld, i, dld_config)
         pool.start(dldjob)
         dldjobs.append(dldjob)
 
-    pijob = Greenlet(pi_approx, evt, piswitch)
+    pi_approx = pi_config.pop('pi_approx')
+    pijob = Greenlet(pi_approx, evt, pi_config)
     pool.start(pijob)
 
     while True:
@@ -114,12 +120,12 @@ def run(pool, evt, url, pi_approx, copy, delay, piswitch):
 
 @click.command()
 @click.option('--quality/--no-quality', default=False, help='Quality Pi')
-@click.option('--copy', default=10, help='Download copies')
-@click.option('--greenlet', default=11, help='Download greenlets')
+@click.option('--copies', default=10, help='Download copies')
+@click.option('--greenlets', default=11, help='Download greenlets')
 @click.option('--debug/--no-debug', default=False, help='Debug')
 @click.option('--delay', default=3, help='Download delay')
 @click.option('--piswitch', default=1, help='Pi approx iter context switch')
-def main(quality, copy, greenlet, debug, delay, piswitch):
+def main(quality, copies, greenlets, debug, delay, piswitch):
     if debug:
         logging.basicConfig(level=logging.DEBUG)
 
@@ -132,11 +138,21 @@ def main(quality, copy, greenlet, debug, delay, piswitch):
     if delay:
         url = 'https://www.python.org/'
 
-    evt = AsyncResult()
-    pool = Pool(greenlet)
+    dld_config = {
+        'url': url,
+        'delay': delay,
+    }
+    pi_config = {
+        'pi_approx': pi_approx,
+        'piswitch': piswitch,
+    }
+    run_config = {
+        'copies': copies,
+        'greenlets': greenlets,
+    }
 
     start = time.time()
-    run(pool, evt, url, pi_approx, copy, delay, piswitch)
+    run(run_config, dld_config, pi_config)
     print('All tasks done. Took %s' % (time.time() - start))
 
 main()
